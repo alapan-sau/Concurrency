@@ -14,34 +14,37 @@
 #include <inttypes.h>
 #include <math.h>
 
+typedef struct s{
+	int left;
+	int right;
+	int* arr;
+}s;
+
 int * shareMem(size_t size){
      key_t mem_key = IPC_PRIVATE;
      int shm_id = shmget(mem_key, size, IPC_CREAT | 0666);
      return (int*)shmat(shm_id, NULL, 0);
 }
 
-// Merges two subarrays of arr[].
-// First subarray is arr[l..m]
-// Second subarray is arr[m+1..r]
 void merge(int *arr, int l, int m, int r)
 {
 	int i, j, k;
 	int n1 = m - l + 1;
 	int n2 = r - m;
 
-	/* create temp arrays */
+
 	int L[n1], R[n2];
 
-	/* Copy data to temp arrays L[] and R[] */
+
 	for (i = 0; i < n1; i++)
 		L[i] = arr[l + i];
 	for (j = 0; j < n2; j++)
 		R[j] = arr[m + 1 + j];
 
-	/* Merge the temp arrays back into arr[l..r]*/
-	i = 0; // Initial index of first subarray
-	j = 0; // Initial index of second subarray
-	k = l; // Initial index of merged subarray
+
+	i = 0;
+	j = 0;
+	k = l;
 	while (i < n1 && j < n2) {
 		if (L[i] <= R[j]) {
 			arr[k] = L[i];
@@ -54,45 +57,68 @@ void merge(int *arr, int l, int m, int r)
 		k++;
 	}
 
-	/* Copy the remaining elements of L[], if there
-	are any */
 	while (i < n1) {
 		arr[k] = L[i];
 		i++;
 		k++;
 	}
 
-	/* Copy the remaining elements of R[], if there
-	are any */
 	while (j < n2) {
 		arr[k] = R[j];
 		j++;
 		k++;
 	}
+	return;
 }
-
-/* l is for left index and r is right index of the
-sub-array of arr to be sorted */
+void selectionSort(int *arr,int l, int r){
+    int i, j, min_idx;
+    for(i = l; i <=r; i++){
+        // Find the minimum element
+        min_idx = i;
+        for (j=i+1; j<=r; j++)
+        	if (arr[j] < arr[min_idx])
+            	min_idx = j;
+		// swap
+		int temp = arr[min_idx];
+		arr[min_idx] = arr[i];
+		arr[i] = temp;
+    }
+	return;
+}
 void mergeSort(int *arr, int l, int r)
 {
-	if (l < r){
-		// Same as (l+r)/2, but avoids overflow for
-		// large l and h
+	if (r-l > 5){
+		int m = l + (r - l) / 2;
+		mergeSort(arr, l, m);
+		mergeSort(arr, m + 1, r);
+
+		merge(arr, l, m, r);
+	}
+	else{
+		selectionSort(arr,l,r);
+	}
+	return;
+}
+
+void mergeSortProcess(int *arr, int l, int r)
+{
+	if (r-l>5){
+
 		int m = l + (r - l) / 2;
 
-        pid_t leftChild = fork();       // made left process
+        pid_t leftChild = fork();
         if(leftChild < 0) perror("fork: ");
 		// Sort left half
         if(leftChild == 0){
-		    mergeSort(arr, l, m);
+		    mergeSortProcess(arr, l, m);
             exit(0);
         }
 
-        pid_t rightChild = fork();      // made right processes
+        pid_t rightChild = fork();
         if(rightChild < 0) perror("fork: ");
         // Sort right half
         if(rightChild == 0){
-		    mergeSort(arr, m + 1, r);
+		    mergeSortProcess(arr, m + 1, r);
             exit(0);
         }
 
@@ -104,12 +130,49 @@ void mergeSort(int *arr, int l, int r)
         }
 	}
     else{
-        exit(0);
+        selectionSort(arr,l,r);
+		return;
     }
 }
 
-/* UTILITY FUNCTIONS */
-/* Function to print an array */
+void *mergeSortThread(void * temp)
+{
+	s* incoming = (s*)temp;
+	int l = incoming->left ;
+	int r = incoming->right;
+	int *arr = incoming->arr;
+
+	if (r-l > 5){
+		int m = l + (r - l) / 2;
+
+		pthread_t tidleft;
+		s* outgoingleft = (s*)malloc(sizeof(s));
+		outgoingleft->left = l;
+		outgoingleft->right = m;
+		outgoingleft->arr = arr;
+		pthread_create(&tidleft, NULL, mergeSortThread, (void*)(outgoingleft));
+
+
+		pthread_t tidright;
+		s* outgoingright = (s*)malloc(sizeof(s));
+		outgoingright->left = m+1;
+		outgoingright->right = r;
+		outgoingright->arr = arr;
+		pthread_create(&tidright, NULL, mergeSortThread, (void*)(outgoingright));
+
+
+		pthread_join(tidleft, NULL);
+		pthread_join(tidright, NULL);
+
+        merge(arr, l, m, r);
+	}
+	else{
+		selectionSort(arr, l, r);
+	}
+	return NULL;
+}
+
+
 void printArray(int A[], int size)
 {
 	int i;
@@ -118,25 +181,75 @@ void printArray(int A[], int size)
 	printf("\n");
 }
 
-/* Driver program to test above functions */
 int main()
 {
     int n;
     scanf("%d",&n);
 
-    int *arr = shareMem(sizeof(int)*(7+1));
+    int *process_arr = shareMem(sizeof(int)*(n+1));
     for(int i=0;i<n;i++){
-        scanf("%d",&arr[i]);
+        scanf("%d",&process_arr[i]);
     }
-
 	int arr_size = n;
 
-	printf("Given array is \n");
-	printArray(arr, arr_size);
+	int normal_arr[n+1];
+	for(int i =0;i<n;i++){
+		normal_arr[i] = process_arr[i];
+	}
 
-	mergeSort(arr, 0, arr_size - 1);
+	int *thread_arr = (int*)malloc((n+1)* sizeof(int));
+	for(int i=0;i<n;i++){
+		thread_arr[i] = process_arr[i];
+	}
 
-	printf("\nSorted array is \n");
-	printArray(arr, arr_size);
+//////////////////////////////////////////////////
+	// printArray(normal_arr, arr_size);
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+    long double st = ts.tv_nsec/(1e9)+ts.tv_sec;
+
+	mergeSort(normal_arr, 0, arr_size - 1);
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+    long double en = ts.tv_nsec/(1e9)+ts.tv_sec;
+    printf("time for normal = %Lf\n", en - st);
+	long double t1 = en-st;
+	printArray(normal_arr, arr_size);
+//////////////////////////////////////////////////
+	// printArray(process_arr, arr_size);
+	// struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+    st = ts.tv_nsec/(1e9)+ts.tv_sec;
+
+	mergeSortProcess(process_arr, 0, arr_size - 1);
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+    en = ts.tv_nsec/(1e9)+ts.tv_sec;
+    printf("time for process = %Lf\n", en - st);
+	long double t2 = en-st;
+	printArray(process_arr, arr_size);
+//////////////////////////////////////////////////////
+	// printArray(thread_arr, arr_size);
+	// struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+    st = ts.tv_nsec/(1e9)+ts.tv_sec;
+
+	pthread_t tid;
+	s* outgoing = (s*)malloc(sizeof(s));
+	outgoing->left = 0;
+	outgoing->right = arr_size-1;
+	outgoing->arr = thread_arr;
+
+	pthread_create(&tid, NULL, mergeSortThread, (void*)(outgoing));
+
+	pthread_join(tid, NULL);
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+    en = ts.tv_nsec/(1e9)+ts.tv_sec;
+    printf("time for threads = %Lf\n", en - st);
+	long double t3 = en-st;
+	printArray(thread_arr, arr_size);
+//////////////////////////////////////////////////////
+
 	return 0;
 }
