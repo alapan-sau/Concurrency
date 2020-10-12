@@ -43,23 +43,25 @@ void * vz_procedure(void * temp){                       // vz thread
         alloted_company = allotCOMPANY();
         self->curr_prob = alloted_company->curr_prob;   // probability
         self->rem_vacc = alloted_company->perbatch;     // # of vaccines
-        printf("Pharmaceutical Company %d has delivered vaccines to Vaccination zone %d, resuming vaccinations now\n",alloted_company->id,self->id);
+        printf("Pharmaceutical Company %d has delivered %d vaccines to Vaccination zone %d, resuming vaccinations now\n",alloted_company->id,alloted_company->perbatch,self->id);
 
         // giving students vaccine
         while(1){
             // while(REM_STUDENTS==0);
-            pthread_mutex_lock(&(self->mutex));
-            self->state = STATE_ALLOTING;
             pthread_mutex_lock(&rem_students);
-
             int k = min(REM_STUDENTS, self->rem_vacc);
             k = min(k,8);
             REM_STUDENTS-=k;
-
             pthread_mutex_unlock(&rem_students);
-            if(k==0)continue;   // if k==0, dont allot!
 
+            pthread_mutex_lock(&(self->mutex));
+            self->state = STATE_ALLOTING;
+            if(k==0){
+                pthread_mutex_unlock(&(self->mutex));
+                continue;   // if k==0, dont allot!
+            }
             self->slots = k;
+            self->rem_vacc-=k;
             // this k is minimum of rem_students, rem_vacc, maximum_limit allowed
             printf("Vaccination Zone %d is ready to vaccinate with %d slots.\n",self->id,k);
 
@@ -72,7 +74,6 @@ void * vz_procedure(void * temp){                       // vz thread
 
             printf("Vaccination Zone %d entering Vaccination Phase\n",self->id);
             self->state = STATE_VACCINATING;
-
 
             // wait for all alloted students are vaccinated
             for(int i=0;i<o;i++){
@@ -95,28 +96,26 @@ void * vz_procedure(void * temp){                       // vz thread
 
 void delay_random(){
     int t = rand() % 3  + 2;
-    sleep(2);
+    sleep(t);
 }
 
 void * company_procedure(void * temp){      // the company thread
     company* self = (company*)temp;
-    delay_random();
+    // delay_random();
     while(1){
         pthread_mutex_lock(&(self->mutex));
         self->batches = rand() % 5 + 1;     // preparing batches
         self->perbatch = rand() % 10 + 10;  // preparing batch vaccines
+        printf("Pharmaceutical Company %d has prepared %d batches of vaccines which have success probability %f.Waiting for all the vaccines to be used to resume production.\n",self->id,self->batches,self->curr_prob);
         self->state = STATE_AVAILABLE;      // allows the vz's to take one batch each
         pthread_mutex_unlock(&(self->mutex));
-        printf("Pharmaceutical Company %d has prepared %d batches of vaccines which have success probability %f.Waiting for all the vaccines to be used to resume production.\n",self->id,self->batches,self->curr_prob);
 
 
         // wait for all the batches to be taken and all vzs to be done using them!
         while(self->rem_vz > 0 || self->batches > 0);
 
         // all vaccines used, change state to unavailable
-        pthread_mutex_lock(&(self->mutex));
         self->state = STATE_UNAVAILABLE;
-        pthread_mutex_unlock(&(self->mutex));
     }
 }
 
@@ -168,36 +167,37 @@ int test(vz *alloted_vz,student *self){         // test results based on probabi
 }
 
 void *student_procedure(void * temp){
+    while (1)
+    {
+        student* self = (student *)temp;
 
-    student* self = (student *)temp;
+        printf("Student %d has arrived for his %dth round of Vaccination\n",self->id,self->round);
+        printf("Student %d is waiting to be allocated a slot on a Vaccination Zone\n",self->id);
 
-    printf("Student %d has arrived for his %dth round of Vaccination\n",self->id,self->round);
-    printf("Student %d is waiting to be allocated a slot on a Vaccination Zone\n",self->id);
+        vz* alloted_vz  = allotVZ(self);    // allots the vz
+        waitVZ(alloted_vz);                 // waits for all allotments of alloted vz
 
-    vz* alloted_vz  = allotVZ(self);    // allots the vz
-    waitVZ(alloted_vz);                 // waits for all allotments of alloted vz
+        printf("Student %d on Vaccination Zone %d has been vaccinated which has success probability %f.\n",self->id,alloted_vz->id,alloted_vz->curr_prob);
+        alloted_vz->alloted_students[self->id]=0;  // loop of vz cooresponding to this student stopped!
 
-    printf("Student %d on Vaccination Zone %d has been vaccinated which has success probability %f.\n",self->id,alloted_vz->id,alloted_vz->curr_prob);
-    alloted_vz->alloted_students[self->id]=0;  // loop of vz cooresponding to this student stopped!
-
-    // go to test!
-    int result = test(alloted_vz,self);
-    if(result){
-        printf("Student %d has tested ‘positive’ for antibodies.\n",self->id);
-    }
-    else{
-        printf("Student %d has tested ‘negative’ for antibodies.\n",self->id);
-        if(self->round == 4)
-        {
-            printf("Student %d went home for another online semester\n",self->id);
+        // go to test!
+        int result = test(alloted_vz,self);
+        if(result){
+            printf("Student %d has tested ‘positive’ for antibodies.\n",self->id);
             return NULL;
         }
+        else{
+            printf("Student %d has tested ‘negative’ for antibodies.\n",self->id);
+            if(self->round == 4)
+            {
+                printf("Student %d went home for another online semester\n",self->id);
+                return NULL;
+            }
 
-        pthread_mutex_lock(&rem_students);
-        REM_STUDENTS++;
-        pthread_mutex_unlock(&rem_students);
-        student_procedure(self);
-        return NULL;
+            pthread_mutex_lock(&rem_students);
+            REM_STUDENTS++;
+            pthread_mutex_unlock(&rem_students);
+        }
     }
     return NULL;
 }
@@ -234,17 +234,16 @@ int vz_init(int i){
 int main(){
     scanf("%d %d %d",&n,&m,&o);
     float prob[n];
-    //printf("%d %d %d here\n",m,n,o);
+
     for(int i=0;i<n;i++){
         scanf("%f",&prob[i]);
     }
-    // printf("there\n");
-    //printf("inputs taken\n");
     VZ = (vz**)malloc(sizeof(vz*) * m);
     COMPANY = (company**)malloc(sizeof(company*) * n);
     STUDENT = (student**)malloc(sizeof(student*) * o);
 
     REM_STUDENTS = o;
+    pthread_mutex_init(&(rem_students),NULL);
 
     for (int i=0;i<n;i++){
         COMPANY[i] = malloc(sizeof(company));
@@ -266,8 +265,6 @@ int main(){
     //printf("threads initiated\n");
     for (int i = 0; i<o; i++){
         pthread_join(STUDENT[i]->tid, NULL);
-        pthread_mutex_lock(&rem_students);
-        pthread_mutex_unlock(&rem_students);
     }
 
     printf("Simulation Done.\n");
