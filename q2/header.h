@@ -14,9 +14,9 @@
 #include <inttypes.h>
 #include <math.h>
 
-#define RED "\e[0;31m"
-#define GREEN "\e[0;32m"
-#define RESET "\e[0m"
+char* RED =  "\e[0;31m";
+char* GREEN =  "\e[0;32m";
+char * RESET =  "\e[0m";
 
 # define STATE_VACCINATING 0
 # define STATE_ALLOTING 1
