@@ -1,5 +1,3 @@
-/* C program for Merge Sort */
-#define _POSIX_C_SOURCE 199309L //required for clock
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>

@@ -1,4 +1,3 @@
-/* C program for Merge Sort */
 #define _POSIX_C_SOURCE 199309L //required for clock
 #include <sys/types.h>
 #include <sys/ipc.h>
@@ -184,9 +183,11 @@ void printArray(int A[], int size)
 int main()
 {
     int n;
+	printf("Enter the number of elements :\n");
     scanf("%d",&n);
 
     int *process_arr = shareMem(sizeof(int)*(n+1));
+	printf("Enter the array elements :\n");
     for(int i=0;i<n;i++){
         scanf("%d",&process_arr[i]);
     }
@@ -203,7 +204,6 @@ int main()
 	}
 
 //////////////////////////////////////////////////
-	// printArray(normal_arr, arr_size);
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
     long double st = ts.tv_nsec/(1e9)+ts.tv_sec;
@@ -212,12 +212,14 @@ int main()
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);
     long double en = ts.tv_nsec/(1e9)+ts.tv_sec;
-    printf("time for normal = %Lf\n", en - st);
+    printf("Normal Merge Sort\n\n");
 	long double t1 = en-st;
 	printArray(normal_arr, arr_size);
+	printf("\n");
+	printf("Time taken for Normal Merge Sort= %Lf\n\n", en - st);
+
 //////////////////////////////////////////////////
-	// printArray(process_arr, arr_size);
-	// struct timespec ts;
+
 	clock_gettime(CLOCK_MONOTONIC, &ts);
     st = ts.tv_nsec/(1e9)+ts.tv_sec;
 
@@ -225,12 +227,13 @@ int main()
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);
     en = ts.tv_nsec/(1e9)+ts.tv_sec;
-    printf("time for process = %Lf\n", en - st);
+    printf("Multi-process Merge Sort\n\n");
 	long double t2 = en-st;
 	printArray(process_arr, arr_size);
+	printf("\n");
+	printf("Time taken for multi-process Merge Sort = %Lf\n\n", en - st);
 //////////////////////////////////////////////////////
-	// printArray(thread_arr, arr_size);
-	// struct timespec ts;
+
 	clock_gettime(CLOCK_MONOTONIC, &ts);
     st = ts.tv_nsec/(1e9)+ts.tv_sec;
 
@@ -246,10 +249,21 @@ int main()
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);
     en = ts.tv_nsec/(1e9)+ts.tv_sec;
-    printf("time for threads = %Lf\n", en - st);
+    printf("Multi-threaded Merge Sort\n\n");
 	long double t3 = en-st;
 	printArray(thread_arr, arr_size);
+	printf("\n");
+    printf("Time taken for multi-threaded Merge Sort = %Lf\n\n", en - st);
 //////////////////////////////////////////////////////
+
+	printf("For %d elements:\n",n);
+    printf("Normal merge sort                      : %Lf\n",t1);
+    printf("Merge sort by creating child processes : %Lf\n",t2);
+    printf("Threaded merge sort                    : %Lf\n",t3);
+    printf("\n");
+    printf("Normal merge sort ran:\n");;
+    printf("\t \t \t [%Lf] times faster than threaded merge sort\n",t3/t1);
+    printf("\t \t \t [%Lf] times faster than child process merge sort\n",t2/t1);
 
 	return 0;
 }

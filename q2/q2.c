@@ -177,6 +177,7 @@ int test(vz *alloted_vz,student *self){         // test results based on probabi
 }
 
 void *student_procedure(void * temp){
+    delay_random();
     while (1)
     {
         student* self = (student *)temp;

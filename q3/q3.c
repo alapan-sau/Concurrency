@@ -355,7 +355,7 @@ int main(){
         STAGE[i]->status = FR;
         pthread_mutex_init(&(STAGE[i]->mutex),NULL);
     }
-    printf("Enter the musician details--name,ins,arrtime");
+    printf("Enter the musician details--name,ins,arrtime\n");
     for(int i=0;i<k;i++){
         MUSICIAN[i] = malloc(sizeof(musician));
         scanf("%s",MUSICIAN[i]->name);
