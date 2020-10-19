@@ -14,9 +14,13 @@
 #include <inttypes.h>
 #include <math.h>
 
-char* RED =  "\e[0;31m";
-char* GREEN =  "\e[0;32m";
+char* RED =  "\e[0;91m";
+char* GREEN =  "\e[0;92m";
 char * RESET =  "\e[0m";
+char* YELLOW = "\033[1;93m";
+char* BLUE = "\033[1;94m";
+char* MAGENTA = "\033[1;95m";
+char* CYAN = "\033[1;96m";
 
 # define STATE_VACCINATING 0
 # define STATE_ALLOTING 1
