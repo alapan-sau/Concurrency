@@ -17,9 +17,14 @@
 #include <string.h>
 
 
-char* RED =  "\e[0;31m";
-char* GREEN =  "\e[0;32m";
-char * RESET =  "\e[0m";
+#define RED "\033[3;31m"
+#define GREEN "\033[3;32m"
+#define YELLOW "\033[3;33m"
+#define BLUE "\033[3;34m"
+#define MAGENTA "\033[3;35m"
+#define CYAN "\033[3;36m"
+#define NORMAL "\033[0m"
+
 
 # define NYA 0
 # define WTP 1
@@ -49,7 +54,7 @@ int stage_id;
 int type;
 int status;
 int play_time;
-pthread_mutex_t mutex;
+pthread_mutex_t mutex_race;
 pthread_cond_t cond_mutex;
 }musician;
 
@@ -100,94 +105,125 @@ int k,a,e,c,t1,t2,t;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+void* singerTshirt(void* temp)
+{
+    musician* self = (musician*) temp;
+    self->status = WTT;
+    sem_wait(&coordinate);
+    sleep(2);
+    printf(CYAN"%s collected T-Shirt\n"NORMAL,self->name);
+    self->status=TSC;
+    sem_post(&coordinate);
+    self->status=Ex;
+}
+
+void postPerformance(musician * self){
+    int sing_partner=-1;
+    if(self->status == PSi){
+        sleep(2);
+        sing_partner = STAGE[self->stage_id]->singer;
+    }
+    else{
+        int val = sem_trywait(&singer);
+        if(val==-1)
+        {
+            sleep(2);
+            sing_partner = STAGE[self->stage_id]->singer;
+            
+        }
+    }
+
+    if(sing_partner==-1) printf(GREEN"%s is done performing \n"NORMAL,self->name); 
+    else printf(GREEN"%s and %s done performing\n"NORMAL,MUSICIAN[sing_partner]->name,self->name);
+
+    // free the stage
+    pthread_mutex_lock(&(STAGE[self->stage_id]->mutex));
+    STAGE[self->stage_id]->status = FR;
+    STAGE[self->stage_id]->singer = -1;   
+    STAGE[self->stage_id]->musician = -1;  
+    pthread_mutex_unlock(&(STAGE[self->stage_id])->mutex);
+
+
+    // free the semaphores
+    if(STAGE[self->stage_id]->type == TYPE_ACOUSTIC) sem_post(&acoustic);
+    else sem_post(&electric);
+
+    pthread_t tc;
+
+    if(sing_partner != -1)
+    {
+        pthread_create(&tc, NULL, singerTshirt,(void*)MUSICIAN[sing_partner]);
+    }
+
+    // go to collect t-shirts!
+    self->status = WTT;
+    sem_wait(&coordinate);
+    sleep(2);
+    printf(CYAN"%s collected T-Shirt\n"NORMAL,self->name);
+    self->status=TSC;
+    sem_post(&coordinate);
+    self->status=Ex;
+    if(sing_partner!=-1)  pthread_join(tc,NULL);
+}
+
+
 void getStage(int type, musician * player){
+
     for(int i=0;i<a+e;i++){
-        if(STAGE[i]->type!=type) continue;
-        if(STAGE[i]->status==FR){
-            pthread_mutex_lock(&(STAGE[i]->mutex));
+        pthread_mutex_lock(&(STAGE[i]->mutex));
+        if(STAGE[i]->type==type){
             if(STAGE[i]->status==FR){
-                STAGE[i]->musician = player->id;
+                // setting stage
+
                 if(player->type == TYPE_SINGER)STAGE[i]->status = S;
                 else STAGE[i]->status = M;
+                STAGE[i]->musician = player->id;    // Note: musician == non 2nd
+
+                // setting player(non 2nd)
+
                 player->stage_id = i;
                 player->status = PSo;
-                sem_post(&singer); // position~
+
+                printf(YELLOW"%s starting perfomance on %s stage %d for %d secs\n"NORMAL,player->name,STAGE[i]->type == TYPE_ACOUSTIC ? "acoustic" : "electric",player->stage_id,player->play_time);
+                if(player->type != TYPE_SINGER)  sem_post(&singer);  // free semaphore for singer
+
                 pthread_mutex_unlock(&(STAGE[i]->mutex));
                 return;
             }
-            pthread_mutex_unlock(&(STAGE[i]->mutex));
         }
+        pthread_mutex_unlock(&(STAGE[i]->mutex));
+    }
+}
+
+
+void getSinger(musician * player){
+    for(int i=0;i<a+e;i++){
+        pthread_mutex_lock(&(STAGE[i]->mutex));
+
+        if(STAGE[i]->status == M){  // only if a musician is playing!!
+
+        // setting the stage
+            STAGE[i]->status = MS;
+            STAGE[i]->singer = player->id;
+
+        // setting the other musician
+            MUSICIAN[STAGE[i]->musician]->status= PSi;
+            player->status = PSi;
+            player->stage_id = i;
+
+            printf(BLUE"Singer %s joined %s on %s stage %d. Exceeding time by 2 secs!\n"NORMAL,player->name, MUSICIAN[STAGE[i]->musician]->name,STAGE[i]->type == TYPE_ACOUSTIC ? "acoustic" : "electric",player->stage_id);
+            pthread_mutex_unlock(&(STAGE[i]->mutex));
+            return;
+
+        }
+        pthread_mutex_unlock(&(STAGE[i]->mutex));
     }
 }
 
 void * waitStage(void * temp){
     waiter * self = (waiter *)temp;
     musician * player = self->player;
-
-    if(self->type == TYPE_ACOUSTIC) sem_wait(&acoustic);
-    else if(self->type == TYPE_ELECTRIC) sem_wait(&electric);
-    else sem_wait(&singer);
-
-    pthread_mutex_lock(&player->mutex);
-    if(player->status == WTP){
-        player->type = self->type;
-        player->status = ATP;
-        pthread_mutex_unlock(&player->mutex);
-        pthread_cond_signal(&player->cond_mutex);
-        return NULL;
-    }
-    if(self->type == TYPE_ACOUSTIC) sem_post(&acoustic);
-    else if(self->type == TYPE_ELECTRIC) sem_post(&electric);
-    pthread_mutex_unlock(&player->mutex);
-    return NULL;
-}
-
-void handleSinger(musician * player){
-    for(int i=0;i<k;i++){
-        if(MUSICIAN[i]->type != TYPE_SINGER) continue;
-        if(MUSICIAN[i]->status == ATP || MUSICIAN[i]->status == WTP){
-            pthread_mutex_lock(&(MUSICIAN[i]->mutex));
-            if(MUSICIAN[i]->status == ATP){
-                player->status = PSi;
-                MUSICIAN[i]->status = PSi;
-                STAGE[player->stage_id]->status = MS;
-                printf("Singer %s joins %s in stage %d\n",MUSICIAN[i]->name,player->name,player->stage_id);
-                sleep(2);
-                STAGE[player->stage_id]->status = FR;
-                player->status = WTT;
-                MUSICIAN[i]->status = WTT;
-                if(player->type == TYPE_ACOUSTIC){
-                    printf("Singer %s and Musician %s are done performing on stage %d\n",MUSICIAN[i]->name,player->name,player->stage_id);
-                    sem_post(&acoustic);
-                }
-                else{
-                    printf("Singer %s and Musician %s are done performing on stage %d\n",MUSICIAN[i]->name,player->name,player->stage_id);
-                    sem_post(&electric);
-                }
-                pthread_mutex_unlock(&(MUSICIAN[i]->mutex));
-                pthread_cond_signal(&(MUSICIAN[i]->cond_mutex));
-                return;
-            }
-            else{
-                pthread_mutex_unlock(&(MUSICIAN[i]->mutex));
-            }
-        }
-    }
-    if(player->type == TYPE_ACOUSTIC){
-        printf("%s performance done on acoustic stage %d\n",player->name,player->stage_id);
-        sem_post(&acoustic);
-    }
-    else{
-        printf("%s performance done on electric stage %d\n",player->name,player->stage_id);
-        sem_post(&electric);
-    }
-}
-
-void * musician_procedure(void * temp){
-    musician * self = (musician *)temp;
-    sleep(self->arrtime);
-    self->status = WTP;
-    printf("%s arrived \n",self->name);
+    int type = self->type;
     struct timespec ts;
     if(clock_gettime(CLOCK_REALTIME,&ts)==-1){
         perror("gettime ");
@@ -196,144 +232,126 @@ void * musician_procedure(void * temp){
     ts.tv_sec += t;
     ts.tv_nsec = 0;
 
+    int semRet;
+    if(self->type == TYPE_ACOUSTIC) semRet = sem_timedwait(&acoustic,&ts);
+    else if(self->type == TYPE_ELECTRIC) semRet = sem_timedwait(&electric,&ts);
+    else semRet = sem_timedwait(&singer,&ts);
+
+    pthread_mutex_lock(&player->mutex_race); // locked
+
+    if(player->status!=WTP){
+        pthread_mutex_unlock(&player->mutex_race);
+        if(semRet!=-1){ // decreased the semaphore, so increase now
+            if(self->type == TYPE_ACOUSTIC) sem_post(&acoustic);
+            else if(self->type == TYPE_ELECTRIC) sem_post(&electric);
+            else sem_post(&singer);
+        }
+        return NULL;
+    }
+    else{
+        player->status = ATP;
+        if(semRet == -1)
+        {
+            printf(RED"%s did not get a stage and left impatiently.\n"NORMAL,player->name);
+            pthread_mutex_unlock(&player->mutex_race);
+            return NULL;
+        }
+        
+    }
+
+    pthread_mutex_unlock(&player->mutex_race);    //unlocked
+
+    if(self->type!=TYPE_SINGER){
+        getStage(type,player);
+        sleep(player->play_time);
+        postPerformance(player);
+    }
+    else getSinger(player);
+
+    return NULL;
+}
+
+
+
+void * musician_procedure(void * temp){
+
+    musician * self = (musician *)temp;
+    sleep(self->arrtime);
+    self->status = WTP;
+
+    printf(CYAN"%s arrived to srujana\n"NORMAL,self->name);
+
+
     if(self->type == TYPE_ACOUSTIC){
-        if(sem_timedwait(&acoustic,&ts)==-1 && errno == ETIMEDOUT){
-            printf("%s didn't get a stage and left\n",self->name);
-            return NULL;
-        }
-        else{
-            getStage(TYPE_ACOUSTIC,self);
-            printf("%s starting performance on acoustic stage %d\n",self->name,self->stage_id);
-            sleep(self->play_time);
-            if(sem_trywait(&singer)==0){
-                self->status = WTT;
-                pthread_mutex_lock(&(STAGE[self->stage_id]->mutex));
-                sem_post(&acoustic);
-                STAGE[self->stage_id]->status = FR;
-                pthread_mutex_unlock(&(STAGE[self->stage_id]->mutex));
-                printf("%s performance done on acoustic stage %d\n",self->name,self->stage_id);
-            }
-            else{
-                handleSinger(self);
-            }
-        }
-    }
-    else if(self->type == TYPE_ELECTRIC){
-        if(sem_timedwait(&electric,&ts)==-1 && errno == ETIMEDOUT){
-            printf("%s didn't get a stage and left\n",self->name);
-            return NULL;
-        }
-        else{
-            getStage(TYPE_ELECTRIC,self);
-            printf("%s starting performance on electric stage %d\n",self->name,self->stage_id);
-            sleep(self->play_time);
-            if(sem_trywait(&singer)==0){
-                self->status = WTT;
-                pthread_mutex_lock(&(STAGE[self->stage_id]->mutex));
-                STAGE[self->stage_id]->status = FR;
-                sem_post(&electric);
-                pthread_mutex_unlock(&(STAGE[self->stage_id]->mutex));
-                printf("%s performance done on electric stage %d\n",self->name,self->stage_id);
-            }
-            else{
-                handleSinger(self);
-            }
-        }
-    }
-    else if(self->type == TYPE_BOTH){
-        pthread_mutex_lock(&(self->mutex));
+
         waiter * waitAc;
         waitAc = malloc(sizeof(waiter));
         waitAc->type = TYPE_ACOUSTIC;
         waitAc->player = self;
+        pthread_create(&(waitAc->tid),NULL,waitStage,(void *)waitAc);
+        pthread_join(waitAc->tid,NULL);
+
+    }
+
+    else if(self->type == TYPE_ELECTRIC){
+        waiter * waitEl;
+        waitEl = malloc(sizeof(waiter));
+        waitEl->type = TYPE_ELECTRIC;
+        waitEl->player = self;
+        pthread_create(&(waitEl->tid),NULL,waitStage,(void *)waitEl);
+        pthread_join(waitEl->tid,NULL);
+
+    }
+
+    else if(self->type == TYPE_BOTH){   // both
+
+        waiter * waitAc;
+        waitAc = malloc(sizeof(waiter));
+        waitAc->type = TYPE_ACOUSTIC;
+        waitAc->player = self;
+
         waiter * waitEc;
         waitEc = malloc(sizeof(waiter));
         waitEc->type = TYPE_ELECTRIC;
         waitEc->player = self;
+
         pthread_create(&(waitAc->tid),NULL,waitStage,(void *)waitAc);
         pthread_create(&(waitEc->tid),NULL,waitStage,(void *)waitEc);
-        pthread_cond_timedwait(&(self->cond_mutex),&(self->mutex),&(ts));
-        if(self->status != ATP){
-            pthread_mutex_unlock(&(self->mutex));
-            printf("%s didn't get a stage and left\n",self->name);
-            return NULL;
-        }
-        getStage(self->type,self);
-        if(self->type == TYPE_ACOUSTIC){
-            printf("%s starting performance on acoustic stage %d\n",self->name,self->stage_id);
-        }
-        else{
-            printf("%s starting performance on electric stage %d\n",self->name,self->stage_id);
-        }
-        sleep(self->play_time);
-        if(sem_trywait(&singer)==0){
-            self->status = WTT;
-            pthread_mutex_lock(&(STAGE[self->stage_id]->mutex));
-            STAGE[self->stage_id]->status = FR;
-            if(self->type == TYPE_ACOUSTIC){
-                printf("%s performance done on acoustic stage %d\n",self->name,self->stage_id);
-                sem_post(&acoustic);
-            }
-            else{
-                printf("%s performance done on electric stage %d\n",self->name,self->stage_id);
-                sem_post(&electric);
-            }
-            pthread_mutex_unlock(&(STAGE[self->stage_id]->mutex));
-        }
-        else{
-            handleSinger(self);
-        }
-        pthread_mutex_unlock(&(self->mutex));
+
+        pthread_join(waitAc->tid,NULL);
+        pthread_join(waitEc->tid,NULL);
+
     }
     else{ // singer
-        pthread_mutex_lock(&(self->mutex));
+
         waiter * waitAc;
         waitAc = malloc(sizeof(waiter));
         waitAc->type = TYPE_ACOUSTIC;
         waitAc->player = self;
+
         waiter * waitEc;
         waitEc = malloc(sizeof(waiter));
         waitEc->type = TYPE_ELECTRIC;
         waitEc->player = self;
+
         waiter * waitS;
         waitS = malloc(sizeof(waiter));
         waitS->type = TYPE_SINGER;
         waitS->player = self;
+
         pthread_create(&(waitAc->tid),NULL,waitStage,(void *)waitAc);
         pthread_create(&(waitEc->tid),NULL,waitStage,(void *)waitEc);
         pthread_create(&(waitS->tid),NULL,waitStage,(void *)waitS);
-        pthread_cond_timedwait(&(self->cond_mutex),&(self->mutex),&(ts));
-        if(self->status==WTP){
-            pthread_mutex_unlock(&(self->mutex));
-            printf("%s didn't get a stage and left\n",self->name);
-            return NULL;
-        }
-        if(self->type!=TYPE_SINGER){
-            getStage(self->type,self);
-            sleep(self->play_time);
-            if(self->type == TYPE_ACOUSTIC){
-                printf("%s performance done on acoustic stage %d\n",self->name,self->stage_id);
-                sem_post(&acoustic);
-            }
-            else{
-                printf("%s performance done on electric stage %d\n",self->name,self->stage_id);
-                sem_post(&electric);
-            }
-        }
-        else{
-            pthread_cond_wait(&self->cond_mutex, &self->mutex);
-        }
-        pthread_mutex_unlock(&(self->mutex));
-    }
-    sem_wait(&coordinate);
-    // printf("%s collecting T-shirt\n",self->name);
-    sleep(2);
-    self->status = TSC;
-    printf("%s collected T-shirt\n",self->name);
-    sem_post(&coordinate);
-    self->status =Ex;
-}
 
+        pthread_join(waitAc->tid,NULL);
+        pthread_join(waitEc->tid,NULL);
+        pthread_join(waitS->tid,NULL);
+
+        // NOTE if its a 2nd mem, then it will simply die here after getting stage, but the other musician will take care of it!
+
+    }
+
+}
 
 int main(){
     printf("Enter k,a,e,c,t1,t2,t\n");
@@ -353,6 +371,8 @@ int main(){
 
         STAGE[i]->id = i;
         STAGE[i]->status = FR;
+        STAGE[i]->musician = -1;
+        STAGE[i]->singer = -1;
         pthread_mutex_init(&(STAGE[i]->mutex),NULL);
     }
     printf("Enter the musician details--name,ins,arrtime\n");
@@ -369,10 +389,12 @@ int main(){
         MUSICIAN[i]->status = NYA;
         MUSICIAN[i]->id = i;
         MUSICIAN[i]->play_time = rand()%(t2-t1+1)+t1;
-        pthread_mutex_init(&(MUSICIAN[i]->mutex),NULL);
+
+        pthread_mutex_init(&(MUSICIAN[i]->mutex_race),NULL);
         pthread_cond_init(&(MUSICIAN[i]->cond_mutex),NULL);
         scanf("%d",&(MUSICIAN[i]->arrtime));
     }
+    printf("\n-----------------------------------------------------STARTING SIMULATION---------------------------------------------------------\n\n");
     for(int i=0;i<k;i++){
         pthread_create(&(MUSICIAN[i]->tid),NULL,musician_procedure,(void *)MUSICIAN[i]);
     }
@@ -380,5 +402,6 @@ int main(){
     for(int i=0;i<k;i++){
         pthread_join((MUSICIAN[i]->tid),NULL);
     }
+    printf("\n\n-----------------------------------------------------ENDING SIMULATION---------------------------------------------------------\n");
     return 0;
 }
