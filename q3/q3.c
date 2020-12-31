@@ -129,18 +129,18 @@ void postPerformance(musician * self){
         {
             sleep(2);
             sing_partner = STAGE[self->stage_id]->singer;
-            
+
         }
     }
 
-    if(sing_partner==-1) printf(GREEN"%s is done performing \n"NORMAL,self->name); 
+    if(sing_partner==-1) printf(GREEN"%s is done performing \n"NORMAL,self->name);
     else printf(GREEN"%s and %s done performing\n"NORMAL,MUSICIAN[sing_partner]->name,self->name);
 
     // free the stage
     pthread_mutex_lock(&(STAGE[self->stage_id]->mutex));
     STAGE[self->stage_id]->status = FR;
-    STAGE[self->stage_id]->singer = -1;   
-    STAGE[self->stage_id]->musician = -1;  
+    STAGE[self->stage_id]->singer = -1;
+    STAGE[self->stage_id]->musician = -1;
     pthread_mutex_unlock(&(STAGE[self->stage_id])->mutex);
 
 
@@ -256,7 +256,7 @@ void * waitStage(void * temp){
             pthread_mutex_unlock(&player->mutex_race);
             return NULL;
         }
-        
+
     }
 
     pthread_mutex_unlock(&player->mutex_race);    //unlocked
